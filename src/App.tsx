@@ -1,5 +1,8 @@
 import React, { useState, useEffect } from "react";
 
+// Clave secreta para que solo el profesor administre
+const ADMIN_PIN = "1234";
+
 interface Student {
   id: string;
   name: string;
@@ -35,6 +38,9 @@ const IconCard = () => (
 const IconTrash = () => (
   <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#ef4444" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg>
 );
+const IconLock = () => (
+  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect><path d="M7 11V7a5 5 0 0 1 10 0v4"></path></svg>
+);
 
 const INITIAL_STUDENTS: Student[] = [
   { id: "1", name: "Valentina Gómez", course: "4° Básico A", balance: 45 },
@@ -62,6 +68,11 @@ export default function App() {
   });
 
   const [activeStudentId, setActiveStudentId] = useState<string | null>(null);
+  const [isAdminAuthenticated, setIsAdminAuthenticated] = useState<boolean>(false);
+  const [pinInput, setPinInput] = useState("");
+  const [pinError, setPinError] = useState(false);
+  const [showPinModal, setShowPinModal] = useState(false);
+
   const [searchTerm, setSearchTerm] = useState("");
   const [showAddModal, setShowAddModal] = useState(false);
   const [editingStudent, setEditingStudent] = useState<Student | null>(null);
@@ -80,7 +91,11 @@ export default function App() {
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
     const id = params.get("studentId");
-    if (id) setActiveStudentId(id);
+    if (id) {
+      setActiveStudentId(id);
+    } else {
+      setIsAdminAuthenticated(false);
+    }
   }, []);
 
   useEffect(() => {
@@ -90,6 +105,22 @@ export default function App() {
   useEffect(() => {
     localStorage.setItem("julius_rewards", JSON.stringify(rewards));
   }, [rewards]);
+
+  const handlePinSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (pinInput === ADMIN_PIN) {
+      setIsAdminAuthenticated(true);
+      setShowPinModal(false);
+      setPinError(false);
+      setPinInput("");
+      const url = new URL(window.location.href);
+      url.searchParams.delete("studentId");
+      window.history.pushState({}, "", url.pathname);
+      setActiveStudentId(null);
+    } else {
+      setPinError(true);
+    }
+  };
 
   const addJulius = (id: string, amount: number) => {
     setStudents((prev: Student[]) =>
@@ -169,22 +200,14 @@ export default function App() {
 
   const activeStudent = students.find((s: Student) => s.id === activeStudentId);
 
+  // VISTA PÚBLICA DE LA TARJETA VIP (Para cuando escanean el QR)
   if (activeStudent) {
     return (
       <div style={styles.studentPage}>
         <div style={styles.studentContainer}>
-          <button onClick={() => {
-            const url = new URL(window.location.href);
-            url.searchParams.delete("studentId");
-            window.history.pushState({}, "", url.pathname);
-            setActiveStudentId(null);
-          }} style={styles.btnBack}>
-            ← Volver al Panel Docente
-          </button>
-
-          <div style={{ textAlign: "center" }}>
-            <h1 style={styles.goldTitle}>BANCO JULIUS COMPANY</h1>
-            <p style={{ color: "#94a3b8", fontSize: "14px", margin: 0 }}>Tarjeta Virtual del Estudiante</p>
+          <div style={{ textAlign: "center", marginTop: "10px" }}>
+            <h1 style={styles.goldTitle}>🏛️ BANCO JULIUS COMPANY</h1>
+            <p style={{ color: "#94a3b8", fontSize: "14px", margin: "4px 0 0 0" }}>Tarjeta Virtual del Estudiante</p>
           </div>
 
           <div style={styles.goldCard}>
@@ -204,6 +227,13 @@ export default function App() {
           <button onClick={() => setShowRewardsModal(true)} style={styles.btnGreen}>
             <IconGift /> Ver Catálogo de Premios
           </button>
+
+          {/* Botón discreto para acceso docente */}
+          <div style={{ textAlign: "center", marginTop: "10px" }}>
+            <button onClick={() => setShowPinModal(true)} style={styles.btnAdminLock}>
+              <IconLock /> Acceso Docente
+            </button>
+          </div>
 
           {showRewardsModal && (
             <div style={styles.overlay}>
@@ -234,18 +264,69 @@ export default function App() {
               </div>
             </div>
           )}
+
+          {/* Modal de PIN Docente */}
+          {showPinModal && (
+            <div style={styles.overlay}>
+              <div style={{ ...styles.modalBox, maxWidth: "300px", textAlign: "center" }}>
+                <h3 style={{ color: "#fff", margin: "0 0 8px 0" }}>Acceso Profesor</h3>
+                <p style={{ color: "#94a3b8", fontSize: "12px", margin: "0 0 14px 0" }}>Ingresa tu clave PIN para administrar:</p>
+                <form onSubmit={handlePinSubmit} style={{ display: "flex", flexDirection: "column", gap: "10px" }}>
+                  <input
+                    type="password"
+                    maxLength={6}
+                    autoFocus
+                    placeholder="Clave (def: 1234)"
+                    value={pinInput}
+                    onChange={e => { setPinInput(e.target.value); setPinError(false); }}
+                    style={{ ...styles.formInput, textAlign: "center", fontSize: "18px", letterSpacing: "4px" }}
+                  />
+                  {pinError && <p style={{ color: "#ef4444", fontSize: "12px", margin: 0 }}>Clave incorrecta</p>}
+                  <button type="submit" style={styles.btnGoldFull}>Ingresar</button>
+                  <button type="button" onClick={() => setShowPinModal(false)} style={styles.btnCancelFull}>Cancelar</button>
+                </form>
+              </div>
+            </div>
+          )}
         </div>
       </div>
     );
   }
 
+  // SI INTENTA ENTRAR AL PANEL Y NO HA PUESTO EL PIN
+  if (!isAdminAuthenticated) {
+    return (
+      <div style={{ ...styles.studentPage, justifyContent: "center" }}>
+        <div style={{ ...styles.modalBox, maxWidth: "320px", textAlign: "center" }}>
+          <h2 style={styles.goldTitle}>🏛️ BANCO JULIUS</h2>
+          <p style={{ color: "#94a3b8", fontSize: "13px", margin: "4px 0 16px 0" }}>Panel Docente Protegido</p>
+          <form onSubmit={handlePinSubmit} style={{ display: "flex", flexDirection: "column", gap: "12px" }}>
+            <label style={{ color: "#cbd5e1", fontSize: "12px" }}>Ingresa la clave del Profesor:</label>
+            <input
+              type="password"
+              maxLength={6}
+              autoFocus
+              placeholder="Clave (def: 1234)"
+              value={pinInput}
+              onChange={e => { setPinInput(e.target.value); setPinError(false); }}
+              style={{ ...styles.formInput, textAlign: "center", fontSize: "20px", letterSpacing: "4px" }}
+            />
+            {pinError && <p style={{ color: "#ef4444", fontSize: "12px", margin: 0 }}>Clave incorrecta</p>}
+            <button type="submit" style={styles.btnGoldFull}>Entrar al Panel Docente</button>
+          </form>
+        </div>
+      </div>
+    );
+  }
+
+  // VISTA PANEL PROFESOR (Protegido)
   return (
     <div style={styles.page}>
       <div style={styles.mainContainer}>
         <header style={styles.header}>
           <div>
             <h1 style={styles.goldTitle}>🏛️ BANCO JULIUS COMPANY</h1>
-            <p style={{ color: "#94a3b8", fontSize: "13px", margin: "2px 0 0 0" }}>Sistema de Premios y Recompensas</p>
+            <p style={{ color: "#94a3b8", fontSize: "13px", margin: "2px 0 0 0" }}>Panel de Control Docente</p>
           </div>
           <div style={{ display: "flex", gap: "10px" }}>
             <button onClick={() => setShowManageRewardsModal(true)} style={styles.btnPurple}>
@@ -258,6 +339,9 @@ export default function App() {
               setShowAddModal(true);
             }} style={styles.btnGold}>
               <IconPlus /> Agregar Alumno
+            </button>
+            <button onClick={() => setIsAdminAuthenticated(false)} style={styles.btnLockHeader} title="Cerrar Sesión Docente">
+              <IconLock /> Bloquear
             </button>
           </div>
         </header>
@@ -485,6 +569,7 @@ const styles: { [key: string]: React.CSSProperties } = {
   goldTitle: { color: "#fbbf24", margin: 0, fontSize: "22px", fontWeight: "900", letterSpacing: "0.5px" },
   btnGold: { backgroundColor: "#f59e0b", color: "#0f172a", border: "none", borderRadius: "10px", padding: "10px 16px", fontWeight: "bold", cursor: "pointer", display: "flex", alignItems: "center", gap: "6px", fontSize: "14px" },
   btnPurple: { backgroundColor: "#6366f1", color: "#fff", border: "none", borderRadius: "10px", padding: "10px 16px", fontWeight: "bold", cursor: "pointer", display: "flex", alignItems: "center", gap: "6px", fontSize: "14px" },
+  btnLockHeader: { backgroundColor: "#334155", color: "#94a3b8", border: "none", borderRadius: "10px", padding: "10px 14px", fontWeight: "bold", cursor: "pointer", display: "flex", alignItems: "center", gap: "6px", fontSize: "13px" },
   btnGoldFull: { width: "100%", backgroundColor: "#f59e0b", color: "#0f172a", border: "none", borderRadius: "10px", padding: "10px", fontWeight: "bold", cursor: "pointer" },
   searchBox: { display: "flex", alignItems: "center", backgroundColor: "#1e293b", border: "1px solid #334155", borderRadius: "12px", padding: "0 12px", gap: "10px" },
   searchInput: { width: "100%", backgroundColor: "transparent", border: "none", color: "#fff", padding: "12px 0", outline: "none", fontSize: "14px" },
@@ -508,10 +593,10 @@ const styles: { [key: string]: React.CSSProperties } = {
   formInput: { width: "100%", backgroundColor: "#020617", border: "1px solid #334155", borderRadius: "8px", padding: "10px", color: "#fff", outline: "none", boxSizing: "border-box", fontSize: "13px" },
   btnCancel: { width: "100%", backgroundColor: "#1e293b", color: "#cbd5e1", border: "none", borderRadius: "10px", padding: "10px", fontWeight: "bold", cursor: "pointer" },
   btnCancelFull: { width: "100%", backgroundColor: "#1e293b", color: "#cbd5e1", border: "none", borderRadius: "10px", padding: "10px", fontWeight: "bold", cursor: "pointer" },
-  studentPage: { minHeight: "100vh", background: "linear-gradient(135deg, #0f172a 0%, #1e1b4b 100%)", padding: "20px", display: "flex", justifyContent: "center", alignItems: "center", fontFamily: "system-ui, sans-serif" },
-  studentContainer: { maxWidth: "360px", width: "100%", display: "flex", flexDirection: "column", gap: "20px" },
+  studentPage: { minHeight: "100vh", background: "linear-gradient(135deg, #0f172a 0%, #1e1b4b 100%)", padding: "20px", display: "flex", flexDirection: "column", justifyContent: "center", alignItems: "center", fontFamily: "system-ui, sans-serif" },
+  studentContainer: { maxWidth: "360px", width: "100%", display: "flex", flexDirection: "column", gap: "16px" },
   goldCard: { background: "linear-gradient(135deg, #fbbf24 0%, #f59e0b 100%)", borderRadius: "20px", padding: "24px", boxShadow: "0 10px 25px -5px rgba(245, 158, 11, 0.4)" },
   btnGreen: { backgroundColor: "#059669", color: "#fff", border: "none", borderRadius: "12px", padding: "14px", fontWeight: "bold", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", gap: "8px", fontSize: "15px" },
-  btnBack: { backgroundColor: "transparent", color: "#fbbf24", border: "none", padding: "8px", fontWeight: "bold", cursor: "pointer", fontSize: "14px", textAlign: "left" },
+  btnAdminLock: { backgroundColor: "transparent", border: "none", color: "#64748b", fontSize: "11px", cursor: "pointer", display: "inline-flex", alignItems: "center", gap: "4px" },
   rewardItem: { padding: "12px", borderRadius: "12px", backgroundColor: "#020617", display: "flex", justifyContent: "space-between", alignItems: "center" }
 };
