@@ -276,7 +276,7 @@ export default function App() {
                     type="password"
                     maxLength={11}
                     autoFocus
-                    placeholder="Clave (def: 1234)"
+                    placeholder="Clave"
                     value={pinInput}
                     onChange={e => { setPinInput(e.target.value); setPinError(false); }}
                     style={{ ...styles.formInput, textAlign: "center", fontSize: "18px", letterSpacing: "4px" }}
@@ -304,9 +304,9 @@ export default function App() {
             <label style={{ color: "#cbd5e1", fontSize: "12px" }}>Ingresa la clave del Profesor:</label>
             <input
               type="password"
-              maxLength={6}
+              maxLength={11}
               autoFocus
-              placeholder="Clave (def: 1234)"
+              placeholder="Clave"
               value={pinInput}
               onChange={e => { setPinInput(e.target.value); setPinError(false); }}
               style={{ ...styles.formInput, textAlign: "center", fontSize: "20px", letterSpacing: "4px" }}
