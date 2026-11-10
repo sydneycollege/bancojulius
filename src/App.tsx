@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from "react";
 
 // Clave secreta para que solo el profesor administre
-const ADMIN_PIN = "1234";
+const ADMIN_PIN = "Sydney17800"
 
 interface Student {
   id: string;
