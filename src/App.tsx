@@ -274,7 +274,7 @@ export default function App() {
                 <form onSubmit={handlePinSubmit} style={{ display: "flex", flexDirection: "column", gap: "10px" }}>
                   <input
                     type="password"
-                    maxLength={6}
+                    maxLength={11}
                     autoFocus
                     placeholder="Clave (def: 1234)"
                     value={pinInput}
