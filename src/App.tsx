@@ -1,9 +1,9 @@
 import React, { useState, useEffect } from "react";
 
-// Credenciales de Supabase usando API REST directa (sin librerías externas)
+// Credenciales de Supabase
 const SUPABASE_URL = "https://jjfvmcubktfidntkamue.supabase.co";
-const SUPABASE_ANON_KEY = "TU_PUBLISHABLE_KEY_AQUI"; // <-- Pega aquí tu clave publishable completa
-const SUPABASE_ANON_KEY = "sb_publishable_E-Pv2tQ7fr...";
+const SUPABASE_ANON_KEY = "sb_publishable_E-Pv2tQ7fr6O6H_kxVN9KQ_QGMbbb-y"; // <-- Pega tu clave de Supabase aquí
+
 const ADMIN_PIN = "Sydney17800";
 
 interface Student {
@@ -94,7 +94,6 @@ export default function App() {
   const [rewardIcon, setRewardIcon] = useState("🎁");
   const [editingRewardId, setEditingRewardId] = useState<string | null>(null);
 
-  // Petición nativa a Supabase API REST
   const fetchStudents = async () => {
     try {
       setLoading(true);
@@ -109,7 +108,7 @@ export default function App() {
         setStudents(data);
       }
     } catch (err) {
-      console.error("Error al cargar alumnos:", err);
+      console.error(err);
     } finally {
       setLoading(false);
     }
@@ -117,7 +116,7 @@ export default function App() {
 
   useEffect(() => {
     fetchStudents();
-    const interval = setInterval(fetchStudents, 5000); // Auto-sincronización cada 5 segundos
+    const interval = setInterval(fetchStudents, 4000);
     return () => clearInterval(interval);
   }, []);
 
