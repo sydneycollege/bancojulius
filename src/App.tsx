@@ -1,7 +1,12 @@
 import React, { useState, useEffect } from "react";
+import { createClient } from "@supabase/supabase-js";
 
-// Clave secreta para que solo el profesor administre
-const ADMIN_PIN = "Sydney17800"
+// Credenciales de Supabase
+const SUPABASE_URL = "https://jjfvmcubktfidntkamue.supabase.co";
+const SUPABASE_ANON_KEY = "TU_PUBLISHABLE_KEY_AQUI"; // <-- Pega aquí la clave publishable de tu pantalla
+const SUPABASE_ANON_KEY = "sb_publishable_E-Pv2tQ7fr...";
+const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+const ADMIN_PIN = "Sydney17800";
 
 interface Student {
   id: string;
@@ -41,12 +46,12 @@ const IconTrash = () => (
 const IconLock = () => (
   <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect><path d="M7 11V7a5 5 0 0 1 10 0v4"></path></svg>
 );
-
-const INITIAL_STUDENTS: Student[] = [
-  { id: "1", name: "Valentina Gómez", course: "4° Básico A", balance: 45 },
-  { id: "2", name: "Mateo Silva", course: "4° Básico A", balance: 30 },
-  { id: "3", name: "Sofía Hernández", course: "4° Básico B", balance: 60 }
-];
+const IconPrinter = () => (
+  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="6 9 6 2 18 2 18 9"></polyline><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"></path><rect x="6" y="14" width="12" height="8"></rect></svg>
+);
+const IconUpload = () => (
+  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="17 8 12 3 7 8"></polyline><line x1="12" y1="3" x2="12" y2="15"></line></svg>
+);
 
 const INITIAL_REWARDS: Reward[] = [
   { id: "r1", title: "Pase para salir 5 min antes", cost: 25, icon: "🔔" },
@@ -57,10 +62,12 @@ const INITIAL_REWARDS: Reward[] = [
 ];
 
 export default function App() {
-  const [students, setStudents] = useState<Student[]>(() => {
-    const saved = localStorage.getItem("julius_students");
-    return saved ? JSON.parse(saved) : INITIAL_STUDENTS;
-  });
+  useEffect(() => {
+    document.title = "Banco Julius Company";
+  }, []);
+
+  const [students, setStudents] = useState<Student[]>([]);
+  const [loading, setLoading] = useState(true);
 
   const [rewards, setRewards] = useState<Reward[]>(() => {
     const saved = localStorage.getItem("julius_rewards");
@@ -79,6 +86,7 @@ export default function App() {
   const [showQrModal, setShowQrModal] = useState<Student | null>(null);
   const [showRewardsModal, setShowRewardsModal] = useState(false);
   const [showManageRewardsModal, setShowManageRewardsModal] = useState(false);
+  const [showPrintView, setShowPrintView] = useState(false);
 
   const [newStudentName, setNewStudentName] = useState("");
   const [newStudentCourse, setNewStudentCourse] = useState("");
@@ -87,6 +95,32 @@ export default function App() {
   const [rewardCost, setRewardCost] = useState(20);
   const [rewardIcon, setRewardIcon] = useState("🎁");
   const [editingRewardId, setEditingRewardId] = useState<string | null>(null);
+
+  // Cargar estudiantes desde Supabase en tiempo real
+  const fetchStudents = async () => {
+    setLoading(true);
+    const { data, error } = await supabase.from("students").select("*").order("name");
+    if (!error && data) {
+      setStudents(data);
+    }
+    setLoading(false);
+  };
+
+  useEffect(() => {
+    fetchStudents();
+
+    // Suscripción a cambios en tiempo real
+    const channel = supabase
+      .channel("schema-db-changes")
+      .on("postgres_changes", { event: "*", schema: "public", table: "students" }, () => {
+        fetchStudents();
+      })
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, []);
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
@@ -97,10 +131,6 @@ export default function App() {
       setIsAdminAuthenticated(false);
     }
   }, []);
-
-  useEffect(() => {
-    localStorage.setItem("julius_students", JSON.stringify(students));
-  }, [students]);
 
   useEffect(() => {
     localStorage.setItem("julius_rewards", JSON.stringify(rewards));
@@ -122,20 +152,28 @@ export default function App() {
     }
   };
 
-  const addJulius = (id: string, amount: number) => {
-    setStudents((prev: Student[]) =>
-      prev.map((s: Student) => (s.id === id ? { ...s, balance: Math.max(0, s.balance + amount) } : s))
-    );
+  const addJulius = async (id: string, amount: number) => {
+    const currentStudent = students.find((s) => s.id === id);
+    if (!currentStudent) return;
+
+    const newBalance = Math.max(0, currentStudent.balance + amount);
+    
+    // Actualización optimista en interfaz
+    setStudents(prev => prev.map(s => s.id === id ? { ...s, balance: newBalance } : s));
+
+    // Guardar en la nube
+    await supabase.from("students").update({ balance: newBalance }).eq("id", id);
   };
 
-  const handleAddStudent = (e: React.FormEvent) => {
+  const handleAddStudent = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!newStudentName.trim()) return;
 
     if (editingStudent) {
-      setStudents((prev: Student[]) =>
-        prev.map((s: Student) => (s.id === editingStudent.id ? { ...s, name: newStudentName, course: newStudentCourse || "General" } : s))
-      );
+      await supabase.from("students").update({
+        name: newStudentName,
+        course: newStudentCourse || "General"
+      }).eq("id", editingStudent.id);
       setEditingStudent(null);
     } else {
       const newStudent: Student = {
@@ -144,12 +182,49 @@ export default function App() {
         course: newStudentCourse || "General",
         balance: 0
       };
-      setStudents([...students, newStudent]);
+      await supabase.from("students").insert([newStudent]);
     }
 
     setNewStudentName("");
     setNewStudentCourse("");
     setShowAddModal(false);
+    fetchStudents();
+  };
+
+  // Cargar estudiantes masivamente desde CSV/Excel
+  const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    const reader = new FileReader();
+    reader.onload = async (evt) => {
+      const text = evt.target?.result as string;
+      const lines = text.split("\n");
+      const newStudentsToInsert: Student[] = [];
+
+      lines.forEach((line, index) => {
+        if (!line.trim()) return;
+        const parts = line.split(/[,;\t]/); // Admite comas, punto y coma o tabulaciones
+        const name = parts[0]?.trim();
+        const course = parts[1]?.trim() || "General";
+        
+        if (name && index > 0) { // Salta encabezado
+          newStudentsToInsert.push({
+            id: (Date.now() + index).toString(),
+            name,
+            course,
+            balance: 0
+          });
+        }
+      });
+
+      if (newStudentsToInsert.length > 0) {
+        await supabase.from("students").insert(newStudentsToInsert);
+        alert(`¡Se importaron ${newStudentsToInsert.length} estudiantes exitosamente!`);
+        fetchStudents();
+      }
+    };
+    reader.readAsText(file);
   };
 
   const handleSaveReward = (e: React.FormEvent) => {
@@ -200,7 +275,63 @@ export default function App() {
 
   const activeStudent = students.find((s: Student) => s.id === activeStudentId);
 
-  // VISTA PÚBLICA DE LA TARJETA VIP (Para cuando escanean el QR)
+  if (showPrintView) {
+    return (
+      <div style={{ backgroundColor: "#fff", padding: "20px", color: "#000", fontFamily: "sans-serif" }}>
+        <div style={{ display: "flex", justifyContent: "space-between", marginBottom: "20px" }} className="no-print">
+          <button onClick={() => setShowPrintView(false)} style={{ padding: "10px 16px", borderRadius: "8px", border: "none", backgroundColor: "#334155", color: "#fff", cursor: "pointer", fontWeight: "bold" }}>
+            ← Volver al Panel
+          </button>
+          <button onClick={() => window.print()} style={{ padding: "10px 20px", borderRadius: "8px", border: "none", backgroundColor: "#059669", color: "#fff", cursor: "pointer", fontWeight: "bold" }}>
+            🖨️ Imprimir Tarjetas (A4)
+          </button>
+        </div>
+
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(2, 1fr)", gap: "16px" }}>
+          {filteredStudents.map((st) => (
+            <div key={st.id} style={{
+              border: "3px solid #d97706",
+              borderRadius: "16px",
+              padding: "16px",
+              background: "linear-gradient(135deg, #fffbe0 0%, #fef3c7 100%)",
+              display: "flex",
+              justify: "space-between",
+              alignItems: "center",
+              boxShadow: "0 2px 4px rgba(0,0,0,0.1)",
+              pageBreakInside: "avoid"
+            }}>
+              <div>
+                <span style={{ fontSize: "10px", fontWeight: "900", letterSpacing: "1px", color: "#b45309", textTransform: "uppercase" }}>
+                  🏛️ Banco Julius VIP
+                </span>
+                <h2 style={{ fontSize: "18px", fontWeight: "900", margin: "4px 0 2px 0", color: "#78350f" }}>{st.name}</h2>
+                <p style={{ fontSize: "12px", margin: 0, color: "#92400e", fontWeight: "bold" }}>{st.course}</p>
+              </div>
+
+              <div style={{ textAlign: "center", background: "#fff", padding: "8px", borderRadius: "10px", border: "1px solid #f59e0b" }}>
+                <img
+                  src={`https://api.qrserver.com/v1/create-qr-code/?size=120x120&data=${encodeURIComponent(
+                    window.location.origin + window.location.pathname + "?studentId=" + st.id
+                  )}`}
+                  alt="QR"
+                  style={{ width: "85px", height: "85px", display: "block" }}
+                />
+                <span style={{ fontSize: "9px", color: "#78350f", fontWeight: "bold", display: "block", marginTop: "2px" }}>Escanea tu Saldo</span>
+              </div>
+            </div>
+          ))}
+        </div>
+
+        <style>{`
+          @media print {
+            .no-print { display: none !important; }
+            body { background: #fff !important; }
+          }
+        `}</style>
+      </div>
+    );
+  }
+
   if (activeStudent) {
     return (
       <div style={styles.studentPage}>
@@ -228,7 +359,6 @@ export default function App() {
             <IconGift /> Ver Catálogo de Premios
           </button>
 
-          {/* Botón discreto para acceso docente */}
           <div style={{ textAlign: "center", marginTop: "10px" }}>
             <button onClick={() => setShowPinModal(true)} style={styles.btnAdminLock}>
               <IconLock /> Acceso Docente
@@ -265,21 +395,20 @@ export default function App() {
             </div>
           )}
 
-          {/* Modal de PIN Docente */}
           {showPinModal && (
             <div style={styles.overlay}>
-              <div style={{ ...styles.modalBox, maxWidth: "300px", textAlign: "center" }}>
+              <div style={{ ...styles.modalBox, maxWidth: "320px", textAlign: "center" }}>
                 <h3 style={{ color: "#fff", margin: "0 0 8px 0" }}>Acceso Profesor</h3>
                 <p style={{ color: "#94a3b8", fontSize: "12px", margin: "0 0 14px 0" }}>Ingresa tu clave PIN para administrar:</p>
                 <form onSubmit={handlePinSubmit} style={{ display: "flex", flexDirection: "column", gap: "10px" }}>
                   <input
                     type="password"
-                    maxLength={11}
+                    maxLength={30}
                     autoFocus
-                    placeholder="Clave"
+                    placeholder="Ingresa la clave docente"
                     value={pinInput}
                     onChange={e => { setPinInput(e.target.value); setPinError(false); }}
-                    style={{ ...styles.formInput, textAlign: "center", fontSize: "18px", letterSpacing: "4px" }}
+                    style={{ ...styles.formInput, textAlign: "center", fontSize: "16px", letterSpacing: "2px" }}
                   />
                   {pinError && <p style={{ color: "#ef4444", fontSize: "12px", margin: 0 }}>Clave incorrecta</p>}
                   <button type="submit" style={styles.btnGoldFull}>Ingresar</button>
@@ -293,7 +422,6 @@ export default function App() {
     );
   }
 
-  // SI INTENTA ENTRAR AL PANEL Y NO HA PUESTO EL PIN
   if (!isAdminAuthenticated) {
     return (
       <div style={{ ...styles.studentPage, justifyContent: "center" }}>
@@ -304,12 +432,12 @@ export default function App() {
             <label style={{ color: "#cbd5e1", fontSize: "12px" }}>Ingresa la clave del Profesor:</label>
             <input
               type="password"
-              maxLength={11}
+              maxLength={30}
               autoFocus
-              placeholder="Clave"
+              placeholder="Ingresa la clave"
               value={pinInput}
               onChange={e => { setPinInput(e.target.value); setPinError(false); }}
-              style={{ ...styles.formInput, textAlign: "center", fontSize: "20px", letterSpacing: "4px" }}
+              style={{ ...styles.formInput, textAlign: "center", fontSize: "16px", letterSpacing: "2px" }}
             />
             {pinError && <p style={{ color: "#ef4444", fontSize: "12px", margin: 0 }}>Clave incorrecta</p>}
             <button type="submit" style={styles.btnGoldFull}>Entrar al Panel Docente</button>
@@ -319,18 +447,24 @@ export default function App() {
     );
   }
 
-  // VISTA PANEL PROFESOR (Protegido)
   return (
     <div style={styles.page}>
       <div style={styles.mainContainer}>
         <header style={styles.header}>
           <div>
             <h1 style={styles.goldTitle}>🏛️ BANCO JULIUS COMPANY</h1>
-            <p style={{ color: "#94a3b8", fontSize: "13px", margin: "2px 0 0 0" }}>Panel de Control Docente</p>
+            <p style={{ color: "#94a3b8", fontSize: "13px", margin: "2px 0 0 0" }}>Panel de Control Docente (Conectado a la Nube ☁️)</p>
           </div>
-          <div style={{ display: "flex", gap: "10px" }}>
+          <div style={{ display: "flex", gap: "10px", flexWrap: "wrap" }}>
+            <label style={styles.btnGreenUpload}>
+              <IconUpload /> Cargar CSV/Excel
+              <input type="file" accept=".csv, .txt" onChange={handleFileUpload} style={{ display: "none" }} />
+            </label>
+            <button onClick={() => setShowPrintView(true)} style={styles.btnBlue}>
+              <IconPrinter /> Imprimir Tarjetas
+            </button>
             <button onClick={() => setShowManageRewardsModal(true)} style={styles.btnPurple}>
-              <IconGift /> Configurar Premios
+              <IconGift /> Premios
             </button>
             <button onClick={() => {
               setEditingStudent(null);
@@ -340,7 +474,7 @@ export default function App() {
             }} style={styles.btnGold}>
               <IconPlus /> Agregar Alumno
             </button>
-            <button onClick={() => setIsAdminAuthenticated(false)} style={styles.btnLockHeader} title="Cerrar Sesión Docente">
+            <button onClick={() => setIsAdminAuthenticated(false)} style={styles.btnLockHeader} title="Cerrar Sesión">
               <IconLock /> Bloquear
             </button>
           </div>
@@ -357,58 +491,62 @@ export default function App() {
           />
         </div>
 
-        <div style={styles.grid}>
-          {filteredStudents.map((student: Student) => (
-            <div key={student.id} style={styles.card}>
-              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
-                <div>
-                  <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
-                    <h3 style={{ margin: 0, color: "#fff", fontSize: "18px", fontWeight: "bold" }}>{student.name}</h3>
-                    <button onClick={() => openEditModal(student)} title="Editar nombre/curso" style={styles.btnIconOnly}>
-                      <IconEdit />
+        {loading ? (
+          <p style={{ textAlign: "center", color: "#fbbf24" }}>Cargando lista desde la nube...</p>
+        ) : (
+          <div style={styles.grid}>
+            {filteredStudents.map((student: Student) => (
+              <div key={student.id} style={styles.card}>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
+                  <div>
+                    <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+                      <h3 style={{ margin: 0, color: "#fff", fontSize: "18px", fontWeight: "bold" }}>{student.name}</h3>
+                      <button onClick={() => openEditModal(student)} title="Editar nombre/curso" style={styles.btnIconOnly}>
+                        <IconEdit />
+                      </button>
+                    </div>
+                    <span style={styles.badge}>{student.course}</span>
+                  </div>
+
+                  <div style={{ display: "flex", gap: "6px" }}>
+                    <button onClick={() => setActiveStudentId(student.id)} title="Ver Tarjeta VIP" style={styles.btnCard}>
+                      <IconCard /> Tarjeta
+                    </button>
+                    <button onClick={() => setShowQrModal(student)} title="Mostrar Código QR" style={styles.btnQr}>
+                      <IconQr /> QR
                     </button>
                   </div>
-                  <span style={styles.badge}>{student.course}</span>
                 </div>
 
-                <div style={{ display: "flex", gap: "6px" }}>
-                  <button onClick={() => setActiveStudentId(student.id)} title="Ver Tarjeta VIP" style={styles.btnCard}>
-                    <IconCard /> Tarjeta
-                  </button>
-                  <button onClick={() => setShowQrModal(student)} title="Mostrar Código QR" style={styles.btnQr}>
-                    <IconQr /> QR
-                  </button>
+                <div style={styles.balanceBox}>
+                  <span style={{ color: "#94a3b8", fontSize: "12px" }}>Saldo Actual</span>
+                  <span style={{ color: "#fbbf24", fontSize: "22px", fontWeight: "900" }}>
+                    {student.balance} <span style={{ fontSize: "12px", color: "#94a3b8", fontWeight: "normal" }}>Julius</span>
+                  </span>
+                </div>
+
+                <div>
+                  <p style={styles.sectionLabel}>SUMAR JULIUS</p>
+                  <div style={styles.btnRow}>
+                    <button onClick={() => addJulius(student.id, 5)} style={styles.btnPlus}>+5</button>
+                    <button onClick={() => addJulius(student.id, 10)} style={styles.btnPlus}>+10</button>
+                    <button onClick={() => addJulius(student.id, 25)} style={styles.btnPlus}>+25</button>
+                    <button onClick={() => addJulius(student.id, 50)} style={styles.btnPlus}>+50</button>
+                  </div>
+                </div>
+
+                <div>
+                  <p style={styles.sectionLabel}>RESTAR JULIUS</p>
+                  <div style={styles.btnRow}>
+                    <button onClick={() => addJulius(student.id, -5)} style={styles.btnMinus}>-5</button>
+                    <button onClick={() => addJulius(student.id, -10)} style={styles.btnMinus}>-10</button>
+                    <button onClick={() => addJulius(student.id, -20)} style={styles.btnMinus}>-20</button>
+                  </div>
                 </div>
               </div>
-
-              <div style={styles.balanceBox}>
-                <span style={{ color: "#94a3b8", fontSize: "12px" }}>Saldo Actual</span>
-                <span style={{ color: "#fbbf24", fontSize: "22px", fontWeight: "900" }}>
-                  {student.balance} <span style={{ fontSize: "12px", color: "#94a3b8", fontWeight: "normal" }}>Julius</span>
-                </span>
-              </div>
-
-              <div>
-                <p style={styles.sectionLabel}>SUMAR JULIUS</p>
-                <div style={styles.btnRow}>
-                  <button onClick={() => addJulius(student.id, 5)} style={styles.btnPlus}>+5</button>
-                  <button onClick={() => addJulius(student.id, 10)} style={styles.btnPlus}>+10</button>
-                  <button onClick={() => addJulius(student.id, 25)} style={styles.btnPlus}>+25</button>
-                  <button onClick={() => addJulius(student.id, 50)} style={styles.btnPlus}>+50</button>
-                </div>
-              </div>
-
-              <div>
-                <p style={styles.sectionLabel}>RESTAR JULIUS</p>
-                <div style={styles.btnRow}>
-                  <button onClick={() => addJulius(student.id, -5)} style={styles.btnMinus}>-5</button>
-                  <button onClick={() => addJulius(student.id, -10)} style={styles.btnMinus}>-10</button>
-                  <button onClick={() => addJulius(student.id, -20)} style={styles.btnMinus}>-20</button>
-                </div>
-              </div>
-            </div>
-          ))}
-        </div>
+            ))}
+          </div>
+        )}
 
         {showManageRewardsModal && (
           <div style={styles.overlay}>
@@ -568,7 +706,9 @@ const styles: { [key: string]: React.CSSProperties } = {
   header: { display: "flex", justifyContent: "space-between", alignItems: "center", borderBottom: "1px solid #1e293b", paddingBottom: "16px", flexWrap: "wrap", gap: "12px" },
   goldTitle: { color: "#fbbf24", margin: 0, fontSize: "22px", fontWeight: "900", letterSpacing: "0.5px" },
   btnGold: { backgroundColor: "#f59e0b", color: "#0f172a", border: "none", borderRadius: "10px", padding: "10px 16px", fontWeight: "bold", cursor: "pointer", display: "flex", alignItems: "center", gap: "6px", fontSize: "14px" },
+  btnGreenUpload: { backgroundColor: "#10b981", color: "#0f172a", border: "none", borderRadius: "10px", padding: "10px 16px", fontWeight: "bold", cursor: "pointer", display: "flex", alignItems: "center", gap: "6px", fontSize: "14px" },
   btnPurple: { backgroundColor: "#6366f1", color: "#fff", border: "none", borderRadius: "10px", padding: "10px 16px", fontWeight: "bold", cursor: "pointer", display: "flex", alignItems: "center", gap: "6px", fontSize: "14px" },
+  btnBlue: { backgroundColor: "#0284c7", color: "#fff", border: "none", borderRadius: "10px", padding: "10px 16px", fontWeight: "bold", cursor: "pointer", display: "flex", alignItems: "center", gap: "6px", fontSize: "14px" },
   btnLockHeader: { backgroundColor: "#334155", color: "#94a3b8", border: "none", borderRadius: "10px", padding: "10px 14px", fontWeight: "bold", cursor: "pointer", display: "flex", alignItems: "center", gap: "6px", fontSize: "13px" },
   btnGoldFull: { width: "100%", backgroundColor: "#f59e0b", color: "#0f172a", border: "none", borderRadius: "10px", padding: "10px", fontWeight: "bold", cursor: "pointer" },
   searchBox: { display: "flex", alignItems: "center", backgroundColor: "#1e293b", border: "1px solid #334155", borderRadius: "12px", padding: "0 12px", gap: "10px" },
