@@ -1,11 +1,9 @@
 import React, { useState, useEffect } from "react";
-import { createClient } from "@supabase/supabase-js";
 
-// Credenciales de Supabase
+// Credenciales de Supabase usando API REST directa (sin librerías externas)
 const SUPABASE_URL = "https://jjfvmcubktfidntkamue.supabase.co";
-const SUPABASE_ANON_KEY = "TU_PUBLISHABLE_KEY_AQUI"; // <-- Pega aquí la clave publishable de tu pantalla
+const SUPABASE_ANON_KEY = "TU_PUBLISHABLE_KEY_AQUI"; // <-- Pega aquí tu clave publishable completa
 const SUPABASE_ANON_KEY = "sb_publishable_E-Pv2tQ7fr...";
-const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 const ADMIN_PIN = "Sydney17800";
 
 interface Student {
@@ -96,30 +94,31 @@ export default function App() {
   const [rewardIcon, setRewardIcon] = useState("🎁");
   const [editingRewardId, setEditingRewardId] = useState<string | null>(null);
 
-  // Cargar estudiantes desde Supabase en tiempo real
+  // Petición nativa a Supabase API REST
   const fetchStudents = async () => {
-    setLoading(true);
-    const { data, error } = await supabase.from("students").select("*").order("name");
-    if (!error && data) {
-      setStudents(data);
+    try {
+      setLoading(true);
+      const res = await fetch(`${SUPABASE_URL}/rest/v1/students?select=*&order=name.asc`, {
+        headers: {
+          apikey: SUPABASE_ANON_KEY,
+          Authorization: `Bearer ${SUPABASE_ANON_KEY}`
+        }
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setStudents(data);
+      }
+    } catch (err) {
+      console.error("Error al cargar alumnos:", err);
+    } finally {
+      setLoading(false);
     }
-    setLoading(false);
   };
 
   useEffect(() => {
     fetchStudents();
-
-    // Suscripción a cambios en tiempo real
-    const channel = supabase
-      .channel("schema-db-changes")
-      .on("postgres_changes", { event: "*", schema: "public", table: "students" }, () => {
-        fetchStudents();
-      })
-      .subscribe();
-
-    return () => {
-      supabase.removeChannel(channel);
-    };
+    const interval = setInterval(fetchStudents, 5000); // Auto-sincronización cada 5 segundos
+    return () => clearInterval(interval);
   }, []);
 
   useEffect(() => {
@@ -156,13 +155,19 @@ export default function App() {
     const currentStudent = students.find((s) => s.id === id);
     if (!currentStudent) return;
 
-    const newBalance = Math.max(0, currentStudent.balance + amount);
-    
-    // Actualización optimista en interfaz
+    const newBalance = Math.max(0, Number(currentStudent.balance) + amount);
     setStudents(prev => prev.map(s => s.id === id ? { ...s, balance: newBalance } : s));
 
-    // Guardar en la nube
-    await supabase.from("students").update({ balance: newBalance }).eq("id", id);
+    await fetch(`${SUPABASE_URL}/rest/v1/students?id=eq.${id}`, {
+      method: "PATCH",
+      headers: {
+        "Content-Type": "application/json",
+        apikey: SUPABASE_ANON_KEY,
+        Authorization: `Bearer ${SUPABASE_ANON_KEY}`,
+        Prefer: "return=minimal"
+      },
+      body: JSON.stringify({ balance: newBalance })
+    });
   };
 
   const handleAddStudent = async (e: React.FormEvent) => {
@@ -170,10 +175,19 @@ export default function App() {
     if (!newStudentName.trim()) return;
 
     if (editingStudent) {
-      await supabase.from("students").update({
-        name: newStudentName,
-        course: newStudentCourse || "General"
-      }).eq("id", editingStudent.id);
+      await fetch(`${SUPABASE_URL}/rest/v1/students?id=eq.${editingStudent.id}`, {
+        method: "PATCH",
+        headers: {
+          "Content-Type": "application/json",
+          apikey: SUPABASE_ANON_KEY,
+          Authorization: `Bearer ${SUPABASE_ANON_KEY}`,
+          Prefer: "return=minimal"
+        },
+        body: JSON.stringify({
+          name: newStudentName,
+          course: newStudentCourse || "General"
+        })
+      });
       setEditingStudent(null);
     } else {
       const newStudent: Student = {
@@ -182,7 +196,16 @@ export default function App() {
         course: newStudentCourse || "General",
         balance: 0
       };
-      await supabase.from("students").insert([newStudent]);
+      await fetch(`${SUPABASE_URL}/rest/v1/students`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          apikey: SUPABASE_ANON_KEY,
+          Authorization: `Bearer ${SUPABASE_ANON_KEY}`,
+          Prefer: "return=minimal"
+        },
+        body: JSON.stringify(newStudent)
+      });
     }
 
     setNewStudentName("");
@@ -191,7 +214,6 @@ export default function App() {
     fetchStudents();
   };
 
-  // Cargar estudiantes masivamente desde CSV/Excel
   const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -204,11 +226,11 @@ export default function App() {
 
       lines.forEach((line, index) => {
         if (!line.trim()) return;
-        const parts = line.split(/[,;\t]/); // Admite comas, punto y coma o tabulaciones
+        const parts = line.split(/[,;\t]/);
         const name = parts[0]?.trim();
         const course = parts[1]?.trim() || "General";
         
-        if (name && index > 0) { // Salta encabezado
+        if (name && index > 0) {
           newStudentsToInsert.push({
             id: (Date.now() + index).toString(),
             name,
@@ -219,7 +241,16 @@ export default function App() {
       });
 
       if (newStudentsToInsert.length > 0) {
-        await supabase.from("students").insert(newStudentsToInsert);
+        await fetch(`${SUPABASE_URL}/rest/v1/students`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            apikey: SUPABASE_ANON_KEY,
+            Authorization: `Bearer ${SUPABASE_ANON_KEY}`,
+            Prefer: "return=minimal"
+          },
+          body: JSON.stringify(newStudentsToInsert)
+        });
         alert(`¡Se importaron ${newStudentsToInsert.length} estudiantes exitosamente!`);
         fetchStudents();
       }
@@ -295,7 +326,7 @@ export default function App() {
               padding: "16px",
               background: "linear-gradient(135deg, #fffbe0 0%, #fef3c7 100%)",
               display: "flex",
-              justify: "space-between",
+              justifyContent: "space-between",
               alignItems: "center",
               boxShadow: "0 2px 4px rgba(0,0,0,0.1)",
               pageBreakInside: "avoid"
@@ -491,7 +522,7 @@ export default function App() {
           />
         </div>
 
-        {loading ? (
+        {loading && students.length === 0 ? (
           <p style={{ textAlign: "center", color: "#fbbf24" }}>Cargando lista desde la nube...</p>
         ) : (
           <div style={styles.grid}>
